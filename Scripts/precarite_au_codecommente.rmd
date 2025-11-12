@@ -1,0 +1,2369 @@
+---
+title: "Analyse multidimensionnelle de la précarité dans le système urbain français"
+subtitle: "Annexes avec code R commenté"
+date: "`r Sys.Date()`"
+author: "Paul Gourdon, Matthieu Delage, Julie Fromentin, Benoit Conti, Sophie Baudet-Michel et Laurent Terral"
+output:
+  rmdformats::robobook:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+    number_sections: true
+    toc-depth: 5
+    code_folding: hide
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style>
+body {
+text-align: justify}
+
+.book .book-body .page-inner {
+    max-width: 1800px;
+}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE )
+
+```
+
+# Organisation du document & Chargement des données {#sec-part1}
+
+Ce fichier d'annexes présente un code R commenté, suivant la chronologie
+de la chaîne de traitements ayant permis les analyses présentées dans
+l'article : [Gourdon P. et al., 2025, « Analyse multidimensionnelle de
+la précarité dans le système urbain français », *Cybergeo : European
+Journal of
+Geography*,](https://journals.openedition.org/cybergeo/){target="_blank"}
+
+Ouverture de plusieurs tables :
+
+-   La table principale, donnée dérivée de trois sources accessibles
+    *via* le CASD ([RP -
+    INSEE](https://www.casd.eu/source/recensement-de-la-population/){target="_blank"}
+    ; [ALLSTAT_FR6 -
+    CNAF](https://www.casd.eu/source/fichier-statistique-des-allocataires-des-caf-donnees-definitives/){target="_blank"}
+    ; [IRCOM -
+    DGFIP](https://www.casd.eu/source/impot-sur-le-revenu-agrege-a-la-commune/){target="_blank"}).
+    L'individu statistique est l'Aire Urbaine (AU), les variables sont
+    en stock et respectent les seuils de secret statistique propres à
+    chaque source. Les valeurs masquées sont ramenées à 0 dans la suite
+    des analyses.
+
+-   Une table d'informations identifiantes pour les AU avec un fichier
+    de géométries (geojson)
+
+-   Un fichier de géométries pour les départements (habillage)
+
+-   Un dictionnaire de variables
+
+Les données portent toutes sur **l'année 2018**.
+
+```{r package-load_data, comment=FALSE}
+# packages
+library(clv)
+library(corrplot)
+library(DescTools)
+library(DT)
+library(explor)
+library(factoextra)
+library(FactoMineR)
+library(GGally)
+library(ggcorrplot)
+library(ggforce)
+library(ggpmisc)
+library(ggpp)
+library(ggpubr)
+library(ggrepel)
+library(ggsci)
+library(gplots)
+library(kableExtra)
+library(mcclust)
+library(RColorBrewer)
+library(reactable)
+library(reactablefmtr)
+library(readODS)
+library(sf)
+library(skimr)
+library(tidyverse)
+library(vcd)
+library(labelled)
+
+
+#### Pas d'écriture scientifique ##
+
+options(scipen = 999)
+
+## Données stocks pour les AU (sources : CASD)
+
+df <- readRDS("../Data/au2018_casd.rds")
+
+## Géométries agrégées des AU (pour la carto)
+
+AUsf <- st_read("../Data/geom/AUsf.geojson", quiet = TRUE)
+
+
+# Informations simples (ID) pour les AU : nom, département, région, etc.
+
+au_info <- read.csv2("../Data/Au_Info.csv")
+
+#  Geometries des departements (habillage)
+
+depsf <- st_read("../Data/geom/a-dep2021.json", quiet = TRUE)
+
+# Dictionnaire de variables
+
+DicoVar <- read.csv2("../Data/VarIntens_ComputePrecarite.csv", 
+                     fileEncoding = "UTF-8")
+
+```
+
+# Intensité de la précarité : quelles différenciations spatiales ? {#sec-part2}
+
+Cette partie du script détaille le calcul de variables relatives
+permettant de saisir l'intensité de diverses formes de précarité dans la
+population des aires urbaines françaises.
+
+Il s'agit principalement d'analyses univariées et bivariées visant une
+première appréhension des différenciations spatiales observables.
+
+## Calcul des variables et ordres de grandeurs {#sec-part2.1}
+
+Les 8 variables relatives retenues pour les analyses dans l'article sont
+construites à partir des 13 variables de stock suivantes :\
+
+-   `P18_POP_rp18` : population au recensement de la population de 2018
+    (Insee)
+
+-   `NB_Pers_couv_RSA` : nombre de personnes couvertes par le RSA en
+    décembre 2018 (Cnaf)
+
+-   `ALL_AAH` : nombre de foyers allocataires de l'AAH (Allocation Adulte
+    Handicapé) en décembre 2018 (Cnaf)
+
+-   `RP_NBFOY_TOTAL` : nombre de foyers fiscaux concernés par les
+    retraites et pensions, données de 2019 sur l'année fiscale 2018
+    (Ircom)
+
+-   `TS_NBFOY_TOTAL` : nombre de foyers fiscaux concernés par les
+    traitements et salaires, données de 2019 sur l'année fiscale 2018
+    (Ircom)
+
+-   `NFOYFISC_PAUVRE_RP` : nombre de foyers fiscaux retraités dont les
+    retraites et pensions sont inférieures à 12 000 euros par an ,
+    données de 2019 sur l'année fiscale 2018 (Ircom)
+
+-   `NFOYFISC_PAUVRE_TS` : nombre de foyers fiscaux dont les traitements
+    et salaires sont inférieurs à 12 000 euros par an, données de 2019
+    sur l'année fiscale 2018 (Ircom)
+
+-   `NCHOM15P_18` : nombre d'individus de 15 ans et plus eau chômage, au
+    recensement de 2018 (Insee)
+
+-   `NACT_18` : nombre d'actifs, au recensement de 2018 (Insee)
+
+-   `NINTERIM15P_18` : nombre d'individus de 15 ans et plus en interim, au
+    recensement de 2018 (Insee)
+
+-   `NCHOMLONG` : nombre d'individus au chômage en recherche d’emploi
+    depuis un an ou plus, au recensement de 2018 (Insee)
+
+-   `NCHOMCOURT` :nombre d'individus au chômage en recherche d’emploi
+    depuis moins d'un an, au recensement de 2018 (Insee)
+
+-   `NEMPL_INF_PEUQUAL_CDD` : nombre d'individus en emploi salarié
+    d’exécution peu qualifié en contrat court, au recensement de 2018.
+    Cette variable combine plusieurs modalités de la variable de
+    position professionnelle (modalités "Manoeuvre, ouvrier spécialisé",
+    "Ouvrier qualifié ou hautement qualifié, technicien d'atelier",
+    "Employé", "Agent de catégorie C de la fonction publique") avec les
+    conditions d'emploi (modalités "En contrat d'apprentissage ou de
+    professionnalisation", "Placé par une agence d'intérim", "Emploi
+    aidé (contrat unique d'insertion, d'initiative emploi,
+    d'accompagnement dans l'emploi, avenir, etc.)", "Stagiaire rémunéré
+    en entreprise", "Autre emploi à durée limitée, CDD, contrat court,
+    saisonnier, vacataire..." ) dans l'exploitation principale du
+    recensement de 2018 (Insee)
+
+Les 8 variables relatives utilisées dans l'article sont les suivantes
+
+:   -   `RSA_1khab` : nombre de personnes couvertes par le RSA pour 1000
+        habitants
+    -   `AAH_1khab` : nombre d'allocataires de l'AAH pour 1000 habitants
+    -   `FOYFISC_PAUVRE_RP` : Part des foyers retraités pauvres (\< 12 k
+        euros/an) sur l’ensemble des foyers fiscaux concernés par les
+        retraites et pensions
+    -   `FOYFISC_PAUVRE_TS` : Part des foyers traitements et salaires
+        pauvres (\< 12 k euros/an) sur l’ensemble des foyers fiscaux
+        concernés par les traitements et salaires - INTERIM : Part de
+        l'interim dans l'ensemble des actifs
+    -   `EMPL_INF_PEUQUAL_CDD` : Part des salariés d'exécution peu
+        qualifiés en contrat court parmi l'ensemble des actifs
+    -   `CHOM_LONG` : Part des chômeurs longue durée (\>=1 an) parmi
+        l'ensemble des actifs
+    -   `CHOM_COURT` : Part des chômeurs courte durée (\<1 an) parmi
+        l'ensemble des actifs
+
+```{r compute_var}
+
+# vérification rapide du tableau du tableau (notamment pour les NA)
+
+skim(df)
+
+# Gestion des valeurs manquantes (NA = valeur < 10 donc on ramène à 0)
+
+df <- df %>%
+  mutate(
+    across(everything(), ~replace_na(.x, 0))
+  )
+
+# fonction pour le  calcul des variables relatives
+
+
+compute_var <- function(x) rowwise(x) %>% 
+  mutate(., 
+         ACTIF = sum(NCHOM15P_18,
+                     NACT_18,
+                     na.rm = TRUE)) %>% 
+  ungroup %>%
+  mutate(., 
+         RSA_1khab = NB_Pers_couv_RSA/P18_POP_rp18*1000, 
+         AAH_1khab = ALL_AAH/P18_POP_rp18*1000,
+         FOYFISC_PAUVRE_RP = NFOYFISC_PAUVRE_RP/RP_NBFOY_TOTAL*100,
+         FOYFISC_PAUVRE_TS = NFOYFISC_PAUVRE_TS/TS_NBFOY_TOTAL*100,
+         INTERIM = NINTERIM15P_18/ACTIF*100, 
+         EMPL_INF_PEUQUAL_CDD = NEMPL_INF_PEUQUAL_CDD/ACTIF*100,
+         CHOM_LONG = NCHOMLONG/ACTIF*100,
+         CHOM_COURT = NCHOMCOURT/ACTIF*100)
+  
+
+### valeur selon le type d'espace (AU et hors AU) et à l'échelle nationale
+
+# AU / hors AU
+
+dfAU_HorsAU <- df %>%
+  # Utilisation des codes AU spéciaux, agrégeant toutes les communes hors aires urbaines
+  mutate(Type = case_when(AU2010 %in% c("000", "997", "998") ~ "Population_HorsAU",
+                          T ~ "Population_AU")) %>%
+  select(-AU2010) %>%
+  group_by(Type) %>%
+  summarise_all(~sum(.)) %>%
+  compute_var() %>%
+  pivot_longer(cols = -Type, names_to = "Variable", values_to = "Valeur") %>%
+  mutate(TypeVar = case_when(Variable %in% DicoVar$Variable  ~ "Part" ,
+         TRUE ~ "Stock")) %>%
+  pivot_wider(id_cols = c(Variable,TypeVar), names_from = Type, values_from = Valeur)
+
+
+
+## Tableau au niveau National
+
+dfnational <- df %>%
+  select(-AU2010) %>%
+  summarise_all(~sum(.)) %>%
+  compute_var() %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Valeur") %>%
+  mutate(TypeVar = case_when(Variable %in% DicoVar$Variable ~ "Part" ,
+                             TRUE ~ "Stock"),
+         Type = "Population_Nationale" )  %>%
+  pivot_wider(id_cols = c(Variable,TypeVar), names_from = Type, values_from = Valeur)
+
+df_ref <- dfnational %>%
+  left_join(select(dfAU_HorsAU, Variable, Population_AU, Population_HorsAU ))
+
+
+# calcul variables relatives 
+
+df <- df %>% 
+  compute_var() %>%
+  # ENlever HORS AU 
+  filter(!AU2010 %in% c("000", "997", "998", "9F1"))
+
+
+  # variables relatives d'intensité de la précarité
+VarRelIntensite <- DicoVar$Variable
+
+
+# Variable stock intensité
+
+VarStockIntensite <-  c( "NB_Pers_couv_RSA", 
+                         "ALL_AAH",
+                         "NFOYFISC_PAUVRE_RP",
+                         "NFOYFISC_PAUVRE_TS",
+                         "NINTERIM15P_18",
+                         "NEMPL_INF_PEUQUAL_CDD",
+                         "NCHOMLONG",
+                         "NCHOMCOURT")
+
+
+# résumé stat
+
+Tout <-  df %>%
+  select( all_of(VarRelIntensite)) %>%
+  skim() %>%
+  filter(skim_type == "numeric") %>%
+  select(-starts_with("character")) %>%
+  as_tibble() %>%
+  select( -c(skim_type,n_missing, complete_rate, numeric.hist))%>%
+  mutate(CV =  numeric.sd/numeric.mean) 
+
+
+colnames(Tout) <-  c( "Variable",  "Moyenne", "EC", "Min", "Q1", "Médiane", "Q3", "Max", "CV")
+
+dfResume <- df_ref %>%
+  filter(TypeVar == "Part") %>%
+  left_join(Tout) %>%
+  left_join(select(DicoVar,Variable, Label))%>%
+  relocate(Label, .after = TypeVar) %>%
+  select(-TypeVar) %>%
+  mutate(across(where(is.numeric), ~ round(., digits = 2)))
+
+rm(Tout)
+
+
+# Affichage du tableau 
+
+sticky_style <- list(backgroundColor = "#f7f7f7")
+ 
+#tableau interactif
+reactable(dfResume, filterable = TRUE, minRows =6, striped = TRUE,
+            columns = list(
+    Variable = colDef(
+      sticky = "left",
+      style = sticky_style,
+      headerStyle = sticky_style
+    )
+  ),
+  resizable = TRUE,
+  wrap = FALSE,
+  bordered = TRUE) %>%
+  add_subtitle("Résumé statistique de chaque variable pour des ensembles de population et pour l'ensemble des AU")
+
+
+# write_csv2(dfResume, "../Output/resumstat8variables.csv")
+```
+
+Les tableaux 1 et 2, présentés dans la partie 2 l'article, sont issus
+des calculs effectués dans cette section, mais ils ont été mis en forme
+dans un tableur.
+
+## Exploration des 8 variables de précarité : distribution et cartographie {#sec-part2.2}
+
+Cette sous-section présente une description des 8 variables retenues.
+
+### Distribution
+
+```{r distrib, fig.width= 14, fig.height=8}
+
+# Preparation du tableau 
+## tableau variables relatives uniquement
+df2 <- df %>%
+  select(AU2010, all_of(VarRelIntensite))
+
+## ajout des labels avec le package labelled
+
+var_label(df2) <- DicoVar %>% 
+  pull(Label) %>% 
+  c("Code Aire Urbaine", .)
+
+## tableau variables de stock
+
+df3 <- df %>%
+  select(AU2010,all_of(VarStockIntensite))
+
+
+# Histogrammes multiples à la volée
+
+## Définition des couleurs
+
+# RColorBrewer::display.brewer.pal(name = "Paired", n = 8)
+# brewer.pal(n=8,"Paired")
+
+col <-  c("#33A02C" , "#B2DF8A","#1F78B4","#A6CEE3", "#FB9A99", "#E31A1C" ,"#FF7F00",  "#FDBF6F")
+
+## Creation de la planche d'histogramme
+  df2 %>% 
+  pivot_longer(cols = -AU2010, 
+               names_to = "Variable", 
+               values_to = "Valeur") %>%
+  group_by(Variable) %>%
+  mutate(Moyenne = mean(Valeur),
+         Mediane = median(Valeur)) %>%
+  ungroup() %>%
+  mutate(across(Variable, ~factor(., levels=VarRelIntensite))) %>%
+  ggplot(aes(x = Valeur, fill = Variable)) + 
+  geom_histogram(show.legend = FALSE, color = "white") +
+  facet_wrap(~ Variable, 
+             scales = "free") + 
+  geom_vline(aes(xintercept = Moyenne, group = Variable), 
+             colour = 'grey20', 
+             size = 1 ) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 6)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  scale_fill_manual(values = col)+
+  labs(subtitle = "Histogrammes des variables de précarité pour les AU en 2018", 
+       y = "Nombre d'Aires Urbaines", x = "",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")
+
+
+```
+
+```{r distance_profilmoyen, comment=FALSE}
+
+# Distances à la moyenne des AU
+
+## Calcul du profil moyen
+meanProfileAU <- dfResume %>% 
+  select(Variable, Moyenne) %>% 
+  mutate(AU2010 = "999", 
+         LIBAU2010 = "Moyennes des AU") %>%
+  pivot_wider(id_cols=  c(AU2010, LIBAU2010), names_from = Variable, values_from = Moyenne) 
+
+## Calcul d'une distance euclidienne au profil moyen
+
+distAllAU <- df2  %>% 
+  mutate(across(where(is.numeric), function(x) x - mean(x, na.rm = TRUE))) %>% 
+  # on normalise les résultats en colonnes pour la comparabilité.
+  mutate(across(where(is.numeric), scale)) %>%
+  rowwise %>% 
+  # l'indicateur créé est donc la somme en valeur absolue des écarts à la moyenne (normalisés)
+  mutate(DistMeanAU = sum(abs(c_across(where(is.numeric))))) %>%
+  ungroup()
+
+
+## les 10 AU les plus proches de la moyenne
+closest_10_mean <- distAllAU %>% 
+  slice_min(DistMeanAU, n = 10) %>% 
+  pull(AU2010)
+
+top10mean <-df2 %>% 
+  ungroup() %>%
+filter(AU2010 %in%  closest_10_mean) %>%
+  left_join(au_info, 
+            by = "AU2010") %>%
+  left_join(select(distAllAU, AU2010,DistMeanAU),  
+            by = "AU2010") %>%
+  bind_rows(meanProfileAU) %>%
+  relocate(AU2010, LIBAU2010, LIBDEP, LIBREG, DistMeanAU)
+
+
+```
+
+### Cartographie exploratoire
+
+Discrétisation : Moyenne plus ou moins 1.5 x écart type (en version log
+pour le RSA) avec une classe autour de la moyenne
+
+```{r carto_explo, fig.width= 14, fig.height=8}
+
+# fonction de calcul moyenne écart type
+
+
+ meanEC <- function(x){c(min(x, na.rm = TRUE), mean(x, na.rm = TRUE)-1.5*sd(x, na.rm = TRUE), mean(x, na.rm = TRUE)-0.5*sd(x, na.rm = TRUE), mean(x, na.rm = TRUE)+0.5*sd(x, na.rm = TRUE), mean(x, na.rm = TRUE)+1.5*sd(x, na.rm = TRUE), max(x, na.rm = TRUE))}
+ 
+# Préparation du tableau pour la cartographie (format long)
+dfcarto <- df2 %>%
+  pivot_longer(cols = -AU2010,
+               names_to = "Variable",
+               values_to = "Valeur") %>%
+  group_by(Variable) %>%
+  mutate(Classe = cut(Valeur,
+                      breaks = meanEC(x=Valeur) ,
+                      dig.lab = 3,
+                      include.lowest = TRUE)) %>%
+  ungroup() %>%
+  left_join(select(AUsf, AU2010)) %>%
+  left_join(select(DicoVar, Variable, Label)) %>%
+  left_join(select(au_info, AU2010, LIBAU2010, pop18_au)) %>%
+  # wrap des labels
+  mutate(Label = str_wrap(Label, width = 40)) %>%
+  st_sf
+
+# Fonction de cartographie automatique
+MapMeanEC <- function(Var){
+
+  ggplot() +
+    geom_sf(data = depsf, fill = "grey30", color = "grey70", size = 0.5) +
+    geom_sf(data = dfcarto %>% filter(Variable == all_of(Var)),
+            mapping = aes(fill = Classe ), lwd = 0) +
+    labs(title = Var,
+         subtitle = dfcarto  %>%
+           filter(Variable == all_of(Var)) %>%
+                    st_drop_geometry %>%
+                    select(Label) %>%
+                    unique %>%
+                    pull,
+         fill = "Moyenne et Ecart-type") +
+     scale_fill_manual(values = rev(brewer.pal(n = 5, "RdBu")))+
+    theme_void() +
+    guides(fill = guide_legend(reverse = TRUE))
+}
+
+# Boucle d'itération sur les 8 variables
+
+for(i in unique(dfcarto$Variable)){
+  plot(MapMeanEC(Var = i))
+
+}
+
+  
+```
+
+La distribution dissymétrique de la variable RSA (Nb de personnes
+couvertes par le RSA pour 1 000 habitants) ne permet pas sa
+représentation correcte avec une dicrétisation selon la moyenne et
+l'écart-type.
+
+##### Cartographie des trois variables
+
+Production des cartes pour trois variables, telles qu'elles sont
+présentées dans l'article. La discrétisation moyenne - écart-type est
+conservée pour la cartographie des variables de "Part des foyers
+retraités pauvres" et de "Part des salariés d'exécution en contrat court
+peu qualifiés", et une discrétisation manuelle à partir d'une
+progression géométrique est proposée pour la cartographie des "Personnes
+couvertes par le RSA pour 1 000 habitants".
+
+```{r carto_param}
+# Paramètres communs
+n_top_labels <- 20
+
+#  Paramètre pour la sélection personnalisée des labels
+# Si NULL, utilise le top n_top_labels basé sur la valeur
+# Si vecteur de noms, utilise ces noms spécifiques
+custom_labels_selection <- NULL  # Par défaut, utilise le système existant
+
+# Paramètres pour geom_text_repel
+label_repel_params <- list(
+  size = 2.5,                      # Taille du texte des labels
+  box.padding = 0.3,               # Espace entre la boîte du label et les autres éléments
+  point.padding = 0.3,             # Distance minimale entre le label et le point qu'il désigne
+  segment.size = 0.4,              # Épaisseur des lignes de connexion
+  segment.alpha = 0.8,             # Transparence des lignes de connexion (0-1)
+  segment.color = "black",        # Couleur des lignes de connexion
+  label.padding = 0.2,             # Espace à l'intérieur du label (marges internes)
+  label.size = 0.1,                # Épaisseur de la bordure du label
+  label.r = 0.1,                   # Rayon des coins arrondis du label
+  fill = alpha("white", 0.8),      # Couleur de fond des labels avec transparence
+  max.overlaps = Inf,              # Nombre maximum de chevauchements autorisés (Inf = tous affichés)
+  force = 2,                       # Force de répulsion entre les labels (plus élevé = plus espacés)
+  min.segment.length = 0,          # Longueur minimale des segments (0 = tous affichés)
+  max.iter = 2000,                 # Nombre maximum d'itérations pour l'algorithme de positionnement
+  nudge_x = 0.1,                   # Décalage horizontal de tous les labels (réduit)
+  nudge_y = 0.1,                   # Décalage vertical de tous les labels (réduit)
+  direction = "both" ,              # Direction de répulsion ("both", "x", "y")
+  xlim = c(-Inf, Inf),                # Permet aux labels de dépasser les limites 
+  ylim = c(-Inf, Inf)                 # Permet aux labels de dépasser les limites verticales
+)
+
+# Sélection des données pour les labels
+select_label_data <- function(data, custom_selection = NULL, n_top = n_top_labels) {
+  if (is.null(custom_selection)) {
+    # Comportement original : top n basé sur la valeur
+    return(data %>% slice_max(order_by = Valeur, n = n_top))
+  } else {
+    # Nouvelle fonctionnalité : sélection personnalisée
+    return(data %>% filter(LIBAU2010 %in% custom_selection))
+  }
+}
+```
+
+```{r carto_rsa}
+
+#### Carte 1 RSA #####
+
+# Définir les labels personnalisés pour cette carte (ou NULL pour garder le comportement original)
+custom_labels_rsa <- c("Saint-Laurent-du-Maroni", "Saint-Benoît"," Saint-Paul",
+                       "Saint-Pierre", "Béthune","Hénin-Beaumont", 
+                       "Douai", "Valenciennes", "Fourmies", 
+                       "Hirson", "Noyon", "Romilly-sur-Seine", 
+                       "Agde", "Béziers", "Morzine", "Rodez")
+
+
+# Discrétisation manuelle à partir d'une progresssion géométrique
+# Définition des breaks et labels et couleurs
+bks <- c(5.3, 39.6463887362614, 50, 70, 132.529521103011, 200, 443.018255222047)
+
+labels <- c("]5.3 - 39.5]", "]39.5 - 50]", "]50 - 70]", "]70 - 132]", "]132 - 200]", "]200 - 443]")
+
+col <- c("#2166AC", "#67A9CF", "#F7F7F7", "#FDDBC7", "#EF8A62", "#B2182B")
+
+## Préparation des données
+
+# Discrétisation
+carto_rsa <-  dfcarto %>%
+  filter(Variable == "RSA_1khab") %>%
+  mutate(Classe = cut(Valeur,
+                      breaks = bks ,
+                      dig.lab = 3,
+                      include.lowest = TRUE))
+
+## étendue des cercles prop 
+rangecircle <- c(1,25)
+
+# contour 
+contour <- 0.2
+
+# reformatage des classes
+old_levels <- c("[5.3,39.6]", "(39.6,50]", "(50,70]", "(70,133]", "(133,200]", "(200,443]")
+
+# Preparation du tableau 
+carto_rsa <- carto_rsa %>%
+  # Recodage des niveaux avec les nouveaux labels
+  mutate(Classe = factor(as.character(Classe),
+                         levels = old_levels,
+                         labels = labels,
+                         ordered = TRUE)) %>%
+  # Comptage par classe
+  group_by(Classe) %>%
+  mutate(n_villes = n()) %>%
+  ungroup() %>%
+  mutate(Classe_label = paste0(Classe, " (n = ", n_villes, ")")) %>% 
+  mutate(Classe_label = factor(Classe_label, 
+                               levels = c("]5.3 - 39.5] (n = 278)",
+                                          "]39.5 - 50] (n = 126)",
+                                          "]50 - 70] (n = 200)", 
+                                          "]70 - 132] (n = 151)",
+                                          "]132 - 200] (n = 20)", 
+                                          "]200 - 443] (n = 14)")))
+
+# verifications rapides
+# table(carto_rsa$Classe)
+# table(carto_rsa$Classe_label)
+
+# Création de la carte
+g_rsa <- ggplot() +
+  geom_sf(data = depsf, fill = "grey70", color = "grey95", size = 0.5) +
+  geom_sf(data = carto_rsa %>% st_centroid(),
+          mapping = aes(fill = Classe, 
+                        size = pop18_au), 
+          pch = 21, 
+          stroke = contour) +
+  do.call(geom_label_repel, c(
+    list(
+      data = select_label_data(carto_rsa, custom_labels_rsa, n_top_labels) %>% st_centroid(),  # MODIFICATION ICI
+      mapping = aes(label = str_wrap(LIBAU2010, 20), 
+                    geometry = geometry),
+      stat = "sf_coordinates"
+    ),
+    label_repel_params
+  )) +
+  scale_size(range = rangecircle,
+             guide = guide_legend(
+               title = "Population en 2018",
+               nrow = 2,
+               label.position = "bottom",
+               direction = "horizontal",
+               override.aes = list(stroke = 0.5)),
+             breaks = c(10000, 100000, 500000, 1000000),
+             labels = c("10 000", "100 000", "500 000", "1 million")) +
+  labs(title = "RSA_1khab",
+       subtitle = carto_rsa %>%
+         st_drop_geometry %>%
+         select(Label) %>%
+         unique %>%
+         pull,
+       fill = "Personnes couvertes par le RSA\npour 1 000 habitants",
+       caption = "Discrétisation : manuelle\n(à partir d'une progression géométrique)\nNom des AU : choix manuel\nSources : INSEE-RP18 expl. princ.\nCNAF - ALL-STAT-FR6 dec 2018\nDGFIP IRCOM 2019") +
+  scale_fill_manual(
+    values = col,
+    breaks =levels(carto_rsa$Classe),
+    labels = levels(carto_rsa$Classe_label)) +
+  theme_void() +
+  coord_sf(expand = TRUE, clip = "off") + # pour permettre l'affichage des labels hors de la carte
+  guides(fill = guide_legend(reverse = TRUE, 
+                             override.aes = list(size=2, stroke = 0.5)))
+
+
+# Affichage carte
+g_rsa
+
+# Version sans titre
+g_rsa <- g_rsa  +
+  labs(title = "",
+       subtitle = "")
+
+# ggsave(plot = g_rsa,
+#        path =  "../Output/",
+#        filename = "carto_rsa_1khab_2018.png",
+#        width = 210,
+#        height = 148,
+#        dpi = 300,
+#        device = "png",
+#        units = "mm",
+#        bg = "white")
+```
+
+```{r carto_foyerRP}
+# Carte 2 - Foyers fiscaux pauvres
+
+# Définir les labels personnalisés pour cette carte
+custom_labels_foyfisc <- c("Maubeuge (partie française)", "Fourmies", "Bastia",
+                           "Porto-Vecchio", "La Réole", "Pézenas",
+                           "Arles", "Lodève", "Beaucaire")  
+
+# Préparation du tableau 
+data_foyfisc <- dfcarto %>% 
+  filter(Variable == "FOYFISC_PAUVRE_RP") %>%
+  group_by(Classe) %>%
+  mutate(n_villes = n()) %>%
+  ungroup() %>%
+  mutate(Classe_label = paste0(Classe, " (n = ", n_villes, ")")) %>%
+  mutate(Classe = fct_drop(Classe)) %>% # envlever les niveaux inutilisés
+  mutate(Classe_label = factor(Classe_label,  # on ordonne manuellement le label
+                               levels = c("[12.1,17.3] (n = 13)",
+                                          "(17.3,23.8] (n = 226)", 
+                                          "(23.8,30.4] (n = 379)", 
+                                          "(30.4,37] (n = 140)", 
+                                          "(37,73.9] (n = 31)")))
+
+# Carte Foyers fiscaux pauvres
+g_foyfisc <- ggplot() +
+  geom_sf(data = depsf, fill = "grey70", color = "grey95", size = 0.5) +
+  geom_sf(data = data_foyfisc %>% st_centroid(),
+          mapping = aes(fill = Classe, size = pop18_au), 
+          pch = 21, 
+          stroke = contour) +
+  do.call(geom_label_repel, c(
+    list(
+      data = select_label_data(data_foyfisc, custom_labels_foyfisc, 15) %>% st_centroid(),  # MODIFICATION ICI
+      mapping = aes(label =  str_wrap(LIBAU2010, 20), 
+                    geometry = geometry),
+      stat = "sf_coordinates"
+    ),
+    label_repel_params
+  )) +
+  scale_size(range = rangecircle,
+             guide = guide_legend(
+               title = "Population en 2018",
+               nrow = 2,
+               label.position = "bottom",
+               direction = "horizontal",
+               override.aes = list(stroke = 0.5)),
+             breaks = c(10000, 100000, 500000, 1000000),
+             labels = c("10 000", "100 000", "500 000", "1 million")) +
+  labs(title = "FOYFISC_PAUVRE_RP",
+       subtitle = data_foyfisc %>%
+         st_drop_geometry %>%
+         select(Label) %>%
+         unique %>%
+         pull,
+       fill = "Part foyers retraités pauvres\ndans l'ensemble des foyers\nfiscaux concernés par les retraites et\npensions",
+       caption = "Discrétisation : moyenne & ecart-type\nNom des AU : choix manuel\nSources : INSEE-RP18 expl. princ.\nCNAF - ALL-STAT-FR6 dec 2018\nDGFIP IRCOM 2019") +
+  scale_fill_manual(
+    values = rev(brewer.pal(n = 5, "RdBu")),
+    breaks = levels(data_foyfisc$Classe), 
+    labels = levels(data_foyfisc$Classe_label)) +
+  theme_void() +
+  coord_sf(expand = TRUE, clip = "off") +
+  guides(fill = guide_legend(reverse = TRUE,
+                             override.aes = list(size=2, stroke = 0.5)))
+
+
+# Affichage carte
+g_foyfisc
+
+# Version sans titre
+g_foyfisc <- g_foyfisc +
+  labs(title = "",
+       subtitle = "")
+
+# ggsave(plot = g_foyfisc,
+#        path =  "../Output/",
+#        filename = "carto_foyrp_pauvre_2018.png",
+#        width = 210,
+#        height = 148,
+#        dpi = 300,
+#        device = "png",
+#        units = "mm",
+#        bg = "white")
+```
+
+```{r carto_cdd_peuqual}
+# Carte 3 - Emplois peu qualifiés en CDD
+
+# Définir les labels personnalisés pour cette carte
+custom_labels_empl <- c("Paris", "Montpellier", "Moûtiers",
+                        "Pauillac", "Feuquières", "Abondance", 
+                        "Nantua", "Bourg-Saint-Maurice", "Castillon-la-Bataille")
+
+# Preparation du tableau
+data_empl <- dfcarto %>% 
+  filter(Variable == "EMPL_INF_PEUQUAL_CDD") %>%
+  group_by(Classe) %>%
+  mutate(n_villes = n()) %>%
+  ungroup() %>%
+  mutate(Classe_label = paste0(Classe, " (n = ", n_villes, ")")) %>%
+  mutate(Classe = fct_drop(Classe)) %>% # envlever les niveaux inutilisés
+  mutate(Classe_label = factor(Classe_label,  # on ordonne manuellement le label
+                               levels = c("[1.83,3.34] (n = 14)", 
+                                          "(3.34,5.13] (n = 240)", 
+                                          "(5.13,6.91] (n = 353)", 
+                                          "(6.91,8.7] (n = 134)", 
+                                          "(8.7,20.4] (n = 48)")))
+
+# Carte Emplois peu qualifiés
+g_empl <- ggplot() +
+  geom_sf(data = depsf, fill = "grey70", color = "grey95", size = 0.5) +
+  geom_sf(data = data_empl %>% st_centroid(),
+          mapping = aes(fill = Classe, size = pop18_au), 
+          pch = 21, 
+          stroke = contour) +
+  do.call(geom_label_repel, c(
+    list(
+      data = select_label_data(data_empl, custom_labels_empl, n_top_labels) %>% st_centroid(),  # MODIFICATION ICI
+      mapping = aes(label = str_wrap(LIBAU2010, 20), 
+                    geometry = geometry),
+      stat = "sf_coordinates"
+    ),
+    label_repel_params
+  )) +
+  scale_size(range = rangecircle,
+             guide = guide_legend(
+               title = "Population en 2018",
+               nrow = 2,
+               label.position = "bottom",
+               direction = "horizontal",
+               override.aes = list(stroke = 0.5)),
+             breaks = c(10000, 100000, 500000, 1000000),
+             labels = c("10 000", "100 000", "500 000", "1 million")) +
+  labs(title = "EMPL_INF_PEUQUAL_CDD",
+       subtitle = data_empl %>%
+         st_drop_geometry %>%
+         select(Label) %>%
+         unique %>%
+         pull,
+       fill = "Part des salariés d'exécution en contrat\ncourt peu qualifiés",
+       caption = "Discrétisation : moyenne & ecart-type\nNom des AU : choix manuel\nSources : INSEE-RP18 expl. princ.\nCNAF - ALL-STAT-FR6 dec 2018\nDGFIP IRCOM 2019") +
+  scale_fill_manual(
+    values = rev(brewer.pal(n = 5, "RdBu")),
+    breaks = levels(data_empl$Classe),
+    labels = levels(data_empl$Classe_label)) +
+  theme_void() +
+  coord_sf(expand = TRUE, clip = "off") +
+  guides(fill = guide_legend(reverse = TRUE, 
+                             override.aes = list(size=2, stroke = 0.5)))
+
+# Affichage de la carte
+g_empl
+
+# Version sans titre
+g_empl <- g_empl +
+  labs(title = "",
+       subtitle = "")
+
+# ggsave(plot = g_empl,
+#        path =  "../Output/",
+#        filename = "carto_emppeuqual_cdd_2018.png",
+#        width = 210,
+#        height = 148,
+#        dpi = 300,
+#        device = "png",
+#        units = "mm",
+#        bg = "white")
+```
+
+## Relations bivariées {#sec-part2.3}
+
+Corrélation entre les 8 variables d'intérêt.
+
+```{r corrplot, fig.width= 14, fig.height=8}
+#### bivariés ####
+
+ggcorr(df2 %>% select_if(is.numeric), 
+       label = TRUE, 
+       hjust = 0.8, 
+       size = 5, layout.exp = 2 )
+
+
+```
+
+On retrouve une correlation assez forte entre la variable du RSA et les
+variables du chômage et ou de la pauvreté monétaire (foyer fiscaux).
+
+Les variables concernant plus directement les formes d'emploi (Interim
+et CDD peu qualifiés) semblent peu corrélées avec le reste.
+
+## Effet taille : appréhension de la hiérarchie urbaine {#sec-part2.4}
+
+On aborde l'effet "taille" des villes avec les variables de stock et un
+modèle linéaire log-log avec la population. Ces analyses se retrouvent
+dans la partie 2.3 de l'article.
+
+```{r loglog, fig.width= 16, fig.height=10}
+
+# test effet taille
+
+## Préparation du tableau et gestion des 0 
+#(soit les remplacer par 1, soit les filtrer : cela ne change pas grand chose donc on garde les 0 en les remplaçant par 1, car log10(1) = 0)
+
+dflog <- df3 %>%
+  left_join(select(df, AU2010,P18_POP_rp18), by = "AU2010") %>%
+  mutate(across(where(is.numeric), ~ replace(., . == 0 , 1))) %>% # remplacer les zero par 1 ou filtrer les 0 (lignes du dessous)
+  # filter_all(. ,all_vars(. > 0)) %>%  #CHOISIR SI ON ENLEVE LES 0 ou Non
+  mutate(across(where(is.numeric), ~log10(.))) %>%
+  mutate(ranksize = Rank(P18_POP_rp18, decreasing = TRUE))
+
+# format long
+dflog <- dflog %>%
+  pivot_longer(-c(AU2010,P18_POP_rp18, ranksize), names_to = "Var", values_to = "Valeur") 
+# mutate(Valeur =  ifelse(is.infinite(Valeur), 0, Valeur)) # gestion des infinis (0 en log)
+
+# préparation du tableau pour graphique : gestion des variables en facteur
+
+dflog <- dflog %>%
+  mutate(across(Var, ~factor(., levels=VarStockIntensite))) %>%
+  left_join(select(au_info, AU2010, LIBAU2010,LIBREG), by = "AU2010")
+
+# vecteur de couleurs
+
+col <-  c("#33A02C" , "#B2DF8A","#1F78B4","#A6CEE3", "#FB9A99", "#E31A1C" , "#FDBF6F" ,"#FF7F00")
+
+
+# fonction de ggpubr utile pour production d'un facet présentant les 8 relations log log (variables vs population)
+
+ggscatter(dflog, x = "P18_POP_rp18" , 
+          y = "Valeur",
+          color = "Var",
+          palette = col,
+          add = "reg.line",
+          add.params = list(color = "grey40", 
+                            size = 0.75),
+          ggtheme = theme_grey(), 
+          alpha = 0.6,
+          shape = 16) +
+  facet_wrap(~Var, scales = "free") + 
+  stat_cor(aes(label = after_stat(rr.label)),
+           label.y.npc = 0.9, 
+           label.x.npc = 0.1,
+           geom = "label" ) +
+  stat_regline_equation(label.y.npc= 1, 
+                        label.x.npc = 0.1,
+                        geom = "label", 
+                        digits = 3 ) +
+  stat_dens2d_labels(aes(label =  LIBAU2010),
+                     # keep.fraction = 0.005, 
+                     orientation = "y",
+                     # keep.sparse = TRUE,
+                     keep.number = 5,
+                     geom = "text_repel",
+                     # position = position_nudge_center(x = 0.05,
+                     #                                  y = 0.05,
+                     #                                  center_x = 0,
+                     #                                  center_y = 0),
+                     vjust = "outward",
+                     hjust = "inward",
+                     size = 3) +
+  labs(title = "Relation entre la taille et les niveaux de précarité",
+       subtitle = "Pour l'ensemble des AU, en 2018",
+       x = "Population 2018 (log10)",
+       y = "Variable en stock (log10)",
+       color = "Variable",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")
+
+
+## Production d'un tableau avec les intervalles de confiance sur les betas
+library(broom)
+
+# Fonction pour effectuer la régression et calculer l'intervalle de confiance
+perform_regression <- function(data, var) {
+  model <- lm(Valeur ~ P18_POP_rp18, data = filter(data, Var == var))
+  
+  # Coefficients avec IC
+  tidy_model <- tidy(model, conf.int = TRUE, conf.level = 0.95)
+  coef_result <- tidy_model %>% filter(term == "P18_POP_rp18")
+  
+  # Statistiques du modèle
+  model_stats <- glance(model)
+  
+  # Combiner
+  result <- coef_result %>%
+    mutate(Var = var,
+           R_squared = model_stats$r.squared,
+           adj_R_squared = model_stats$adj.r.squared)
+  
+  return(result)
+}
+
+# Appliquer la fonction à chaque variable
+regression_results <- dflog %>%
+  distinct(Var) %>%
+  pull(Var) %>%
+  map_dfr(~perform_regression(dflog, .)) %>%
+  mutate(Var = distinct(dflog, Var) %>% pull(Var))
+
+# Afficher les résultats
+print(regression_results %>% 
+        select(Var, estimate, conf.low, conf.high, R_squared) %>%
+        rename(beta = estimate, 
+               CI_lower = conf.low, 
+               CI_upper = conf.high))
+
+
+```
+
+Test de robustesse : tableau des résultats en retirant Paris (AU2010 =
+001).
+
+```{r loglog_without_paris,  regression_sans_paris}
+
+# même code mais en enlevant paris (quasi-outlier) pour robustesse des résultats
+
+dflog2 <- dflog %>%
+  # enlever Paris
+  filter(AU2010 != "001")
+
+regression_results2 <- dflog2 %>%
+  distinct(Var) %>%
+  pull(Var) %>%
+  map_dfr(~perform_regression(dflog2, .)) %>%
+  mutate(Var = distinct(dflog2, Var) %>% pull(Var))
+
+# Afficher les résultats
+print(regression_results2 %>% 
+        select(Var, estimate, conf.low, conf.high, R_squared) %>%
+        rename(beta = estimate, 
+               CI_lower = conf.low, 
+               CI_upper = conf.high))
+
+```
+
+Observation : les résultats restent stables avec ou sans l'AU de Paris
+(AU2010 = 001).
+
+Création de la planche avec les trois relations log-log, en conservant
+Paris.
+
+```{r loglog_final, fig.width= 16, fig.height=10}
+
+# sous selection avec les trois variables présentées dans l'artcile
+dflog2 <- dflog %>% 
+  filter(Var %in%  c("NB_Pers_couv_RSA", "NFOYFISC_PAUVRE_RP","NEMPL_INF_PEUQUAL_CDD" )) %>%
+  mutate(VarName = case_when(Var == "NB_Pers_couv_RSA" ~ "Nombre de personnes couvertes par le RSA", 
+                             Var == "NFOYFISC_PAUVRE_RP" ~ "Nombre de foyers retraités pauvres",
+                             T ~ "Nombre de salariés d'exécution peu qualifiés en contrats courts"))
+
+# retransformation en valeurs brutes pour les axes x et y
+
+dflog2 <- dflog2 %>%
+  mutate(P18_POP_rp18 = 10^P18_POP_rp18,
+         Valeur = 10^Valeur)
+
+# vecteur de couleurs
+col <-  c("#33A02C" , "#1F78B4","#E31A1C" )
+
+
+# tableau avec valeur et intervalle de confiance : 
+df_ci <- regression_results %>% 
+  select(Var, estimate, conf.low, conf.high) %>%
+  rename(beta = estimate, 
+         CI_lower = conf.low, 
+         CI_upper = conf.high) %>%
+  filter(Var %in%  c("NB_Pers_couv_RSA", "NFOYFISC_PAUVRE_RP","NEMPL_INF_PEUQUAL_CDD" )) %>%
+  mutate(across(where(is.numeric), ~round(., 3)))
+
+dflog2 <- dflog2 %>%
+  left_join(df_ci)
+# change function for digits in equation : https://stackoverflow.com/questions/66177005/im-using-stat-regline-equation-with-ggscatter-is-there-a-way-to-specify-the-si
+# trace(ggpubr:::.stat_lm, edit = TRUE)
+# ligne 13-14  : eq.char <- as.character(signif(polynom::as.polynomial(coefs), 3))
+
+g <- ggscatter(dflog2, x = "P18_POP_rp18" , 
+               y = "Valeur",
+               color = "VarName",
+               palette = col,
+               add = "reg.line",
+               add.params = list(color = "grey40", size = 0.75),
+               ggtheme = theme_grey(), 
+               alpha = 0.6,
+               shape = 16,
+               show.legend.text = FALSE) +
+  scale_x_log10() +  
+  scale_y_log10() + 
+  facet_wrap(~VarName, 
+             labeller = labeller(VarName = label_wrap_gen(20))) + 
+  stat_cor(aes(label = after_stat(rr.label)),
+           label.y.npc = 0.9, label.x.npc = 0.1,
+           geom = "label", size = 2.5) +
+  stat_regline_equation(label.y.npc= 1, 
+                        label.x.npc = 0.1,
+                        geom = "label", 
+                        digits = 5 ,
+                        size = 2.5) +
+  stat_dens2d_labels(aes(label =  LIBAU2010),
+                     # keep.fraction = 0.005, 
+                     orientation = "y",
+                     # keep.sparse = TRUE,
+                     keep.number = 5,
+                     geom = "text_repel",
+                     # position = position_nudge_center(x = 0.05,
+                     #                                  y = 0.05,
+                     #                                  center_x = 0,
+                     #                                  center_y = 0),
+                     vjust = "outward",
+                     hjust = "inward",
+                     size = 2.5) +
+  geom_label( aes(label = paste("β = ", beta, "\n", "CI 95% (", CI_lower, " – ", CI_upper, ")" )),
+              x = 6 , 
+              y = 2 , 
+              size = 2.5) +
+  labs(title = "Relation entre la taille et les niveaux de précarité",
+       subtitle = "Pour l'ensemble des AU, en 2018",
+       x = "Population 2018 (échelle log10)",
+       y = "Variable en stock (échelle log10)",
+       color = "Variable",
+       caption =  "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019") +
+  #enlever la légende
+  theme(legend.position="none")
+
+g
+
+
+g <- g + labs(title = "", subtitle = "")
+
+# ggsave(g, path =  "../Output/", filename = "loglin_3variable.png", device = "png",width = 200, height = 126, units = "mm")
+
+
+```
+
+## Construction voisinage {#sec-part2.5}
+
+Cette sous-section du code ne correspond à aucune analyse directement
+présentée dans l'article, mais elle permet le calcul de différentes
+matrices de voisinage, étape cruciale pour les analyses
+d'auto-corrélation spatiale qui suivent.
+
+Ici, beaucoup de tests ont été effectués en faisant varier :
+
+-   le type de distances considérées :
+
+    -   kilométrique (*dist*),
+
+    -   *k* plus proches voisins (*knn*)
+
+    -   [Graphe de
+        Gabriel](https://fr.wikipedia.org/wiki/Graphe_de_Gabriel){target="_blank"}
+        (*gabriel*)
+
+-   le type de matrice pour les k plus proches voisins (*symetric =
+    TRUE/FALSE*) :
+
+    -   symétrique : si A est considéré comme voisin de B, alors B est
+        automatiquement voisin de A
+
+    -   non symétrique : B peut être le plus proche voisin de A, alors
+        que A n'est pas le plus proche voisin de B
+
+-   Les paramètres propres aux distances (*param*) :
+
+    -   Seuils métriques
+
+    -   Nombres de plus proches voisins
+
+NOTE : Pour alléger le code, les fonctions de calcul ont été mises dans
+un fichier à part : `funtions.R`. Le code repose principalement sur les
+fonctions du [package
+sp](https://cran.r-project.org/web/packages/sp/index.html){target="_blank"}.
+Le code a été produit et testé de manière linéaire par les auteurices,
+mais sa factorisation et mise en fonction a été facilitée par l'IA
+d'Anthropic Claude.
+
+Les spécificités du code mis en fonctions sont la gestion des différents types de distances (ne prenant pas en compte les même paramètres) pour calculer les différentes matrices de voisinage. Et la gestion des DROM (qui sont ici dans une configuration spatiale rapprochée, pour la cartographie, et que l'on traite séparément afin de ne pas créer des voisinages "artificiels" entre leurs AU respectives).
+
+Les étapes de création des voisinages et de calculs d'auto-corrélation spatiale étant intensives (et longues), les fichiers de résultats ont été enregistrés préalablement dans le dossier `/Output` : ainsi les fonctions d'execution sont ici commentées, et les fichiers de résultats sont simplement chargés.
+
+```{r build_neigh_matric, comment=FALSE}
+
+library(sp)
+library(spdep)
+ # remotes::install_github("adeverse/adespatial")  # voir : https://github.com/adeverse/adespatial
+## tuto : https://cran.r-project.org/web/packages/adespatial/vignettes/tutorial.html
+# install.packages("adespatial")
+library(adespatial)
+
+
+# tranformation en lambert 93 et ajout d'une variable France hexagonale ou DROM
+
+AUsf_93 <- AUsf %>%
+  st_transform(crs = 2154) %>% 
+  left_join(select(au_info, AU2010, REG)) %>%
+  mutate(GROUP_REG = as.character(case_when(REG %in% c(1:4, 94) ~ REG,
+                               TRUE ~ 999))) %>%
+  select(- REG)
+
+#### créer les centroides
+
+
+AU_centr <- AUsf_93 %>%
+  st_centroid()
+
+# récupérer les coordonnées géographiques des centroids
+coord_centr <- AU_centr %>% st_coordinates()
+
+# listw.explore() # pour tester différentes configuration. Approche graph Gabriel intéressante en termes de nombre de voisins
+
+
+# chargements des fonctions créées 
+
+source("functions.R")
+
+# Utilisation des fonctions
+
+## vecteur de nombre de voisins
+k_values <- c(1, 2, 3,4 ,10, 20 )
+## vecteurs de distances en mètres
+dist_values <- c(5000, 10000, 15000, seq(20000, 250000, 10000) )
+# distance pour les centroids
+dist_values_points <- c( 50000)
+
+
+# création des listes de voisinage (long à calculer)
+
+# neighborhood_configs <- create_neighborhood_configs(AUsf_93, AU_centr, k_values, dist_values, dist_values_points, group_column = "GROUP_REG")
+
+# saveRDS(neighborhood_configs, "../Output/voisinage_AU.rds")
+
+ neighborhood_configs <- readRDS("../Output/voisinage_AU.rds")
+
+# Affichage d'un résumé des configurations
+config_summary <- map_df(neighborhood_configs, function(.) {
+  data.frame(
+    type = .$config$type,
+    method = .$config$method,
+    param = .$config$param,
+    symmetric = .$config$symmetric,
+    n_components = .$n_components,
+    avg_neighbors = round(.$avg_neighbors, 2),
+    med_neighbors = round(.$med_neighbors, 2),
+    min_neighbors = round(.$min_neighbors, 2),
+    max_neighbors = round(.$max_neighbors, 2),
+    q1_neighbors = round(.$q1_neighbors, 2),
+    q3_neighbors = round(.$q3_neighbors, 2)
+  )
+}, .id = "name")
+
+
+# résumé des configurations de voisinages
+kable(config_summary, row.names = FALSE)
+
+
+```
+
+Autre résumé cartographique des configurations de voisinage des AU, avec
+le code ci-dessous (peu lisible, vraiment exploratoire)
+
+```{r raw_vizu_neigh}
+# Visualisation de chaque configuration (optionnel)
+
+
+# for (i in seq_along(neighborhood_configs)) {
+#   config <- neighborhood_configs[[i]]
+#   print(paste("Configuration de voisinage", i))
+#   create_simple_plot(config, if(config$config$type == "polygon") AUsf_93 else AU_centr)
+# }
+
+
+```
+
+Histogrammes et diagrammes en bâtons pour évaluer les configurations de
+voisinages selon la distribution du nombre de voisins.
+
+```{r overview_neigh_config}
+# Création du dataframe avec résumés statistiques 
+neighbor_distributions <- map_df(neighborhood_configs, function(config) {
+  card_values <- card(config$nb)
+  data.frame(
+    name = paste(config$config$type, 
+                config$config$method, 
+                ifelse(is.na(config$config$param), "NA", config$config$param),
+                config$config$symmetric,
+                sep = "_"),
+    n_neighbors = card_values,
+    mean_neighbors = mean(card_values),
+    median_neighbors = median(card_values)
+  )
+})
+
+# Préparation des données
+neighbor_distributions <- neighbor_distributions %>%
+  separate(name, into = c("type", "method", "param", "symmetric"), sep = "_") %>%
+  mutate(
+    param = ifelse(param == "NA", "gabriel", param),
+    # Création d'une étiquette plus informative
+    config_name = sprintf("%s %s\n%s\nmoy=%.1f méd=%d",
+                         type,
+                         method,
+                         ifelse(method == "gabriel", "", 
+                               paste0(param, ifelse(symmetric == "TRUE", " sym", ""))),
+                         mean_neighbors,
+                         median_neighbors)
+  )
+
+# Création du graphique 
+g <- ggplot(neighbor_distributions, aes(x = n_neighbors)) +
+  geom_bar(fill = "lightblue", color = "black") +
+  facet_wrap_paginate(~ config_name, 
+                      nrow = 3, 
+                      ncol = 3,
+                      scales = "free") +
+  labs(
+    title = "Distribution du nombre de voisins par configuration",
+    x = "Nombre de voisins",
+    y = "Fréquence"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 8),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(fill = NA, color = "gray80")
+  )
+
+
+for(i in 1:n_pages(g)){
+   print(g + 
+    facet_wrap_paginate(~ config_name, nrow = 3, ncol = 3, page = i, scales = "free"))
+}
+
+
+
+```
+
+Choix effectué : retenir la distance métrique (entre les points les plus proches
+des polygones des AU), en faisant varier les seuils de distance.
+
+L'espace des AU étant non-contigu, la distance métrique a un avantage en
+terme d'interprétation des résultats. Une distance faible dessine des
+sortes de "corridors urbains" (ensemble d'AU très proches) et une
+distance plus élevée dessine de grandes régions (sans suivre les limites
+administratives). De plus, pour les distances métriques relativement
+faibles, la distribution du nombre de voisins est équilibrée (quelques
+valeurs extrêmes seulement).
+
+## Auto-corrélation spatiale globale : Moran globaux sur les 8 variables {#sec-part2.6}
+
+Cette sous-section propose une première approche de l'auto-corrélation
+spatiale de manière globale et dans une perspective univariée (calcul
+pour les 8 variables d'intérêt).
+
+La distinction entre l'auto-corrélation positive et négative est permise
+par les fonctions du [package
+adespatial](https://cran.r-project.org/web/packages/adespatial/index.html){target="_blank"}.
+
+Ici, seule l'autocorrélation positive était "significative", nous avons
+donc choisi de n'affichait que celle-ci.
+
+```{r globalmoran_univariate}
+
+# appliquer la fonction du global moran sur toutes les variables pour toutes les configurations de voisinages (long à calculer)
+  
+
+# moran_results <- calculate_moran_tests(df2 %>% select(where(is.numeric)), neighborhood_configs)
+
+# Sauvegarde des résultats
+
+ # write.csv(moran_results, "../Output/voisinagemoran_results.csv", row.names = FALSE)
+
+
+# chargement des résultats
+moran_results <- read.csv("../Output/voisinagemoran_results.csv")
+
+
+
+### graphique pour les distances polygones
+
+moran_polydist <- moran_results %>%
+  # ne garder que les moran de l'autocorrélation positive pour les calculs de distances à la frontière de polygones
+  filter(type == "I+" & config_type == "polygon" ) %>%
+  mutate(Distance_km = as.numeric(param)/1000) %>%
+  mutate(variable = factor(variable, levels = VarRelIntensite))
+
+# ajout des labels de variables
+
+moran_polydist <- moran_polydist %>%
+  left_join(select(DicoVar, Variable, Label), by = c("variable" = "Variable")) %>%
+  mutate(Label = recode(Label, "Part foyers retraités pauvres (< 12 k euros/an) sur l’ensemble des foyers fiscaux concernés par les retraites et pensions" = "Part des foyers fiscaux retraités pauvres (< 12 k euros/an)" , 
+               "Part foyers traitements et salaires pauvres (< 12 k euros/an) sur l’ensemble des foyers fiscaux concernés par les traitements et salaires" =   "Part des foyers fiscaux actifs pauvres (< 12 k euros/an)" )) %>%
+   mutate(Label = str_wrap(Label, width = 30)) 
+
+# couleur
+col <-  c("#33A02C" , "#B2DF8A","#1F78B4","#A6CEE3", "#FB9A99", "#E31A1C" ,"#FF7F00",  "#FDBF6F")
+# vecteur couleur nommé
+names(col) <- unique(moran_polydist$Label)
+
+# graphique
+g_moran_global_univ <- ggplot(moran_polydist %>%
+         filter(pvalue < 0.05)) +
+  geom_point(aes(x= Distance_km, y = observed, color = Label, group = Label )) +
+  geom_line(aes(x= Distance_km, y = observed, color = Label, group = Label )) +
+  scale_color_manual(values = col) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  labs(title = "Autocorrélation positive globale pour les 8 variables", 
+       subtitle = "en fonction de la distance de voisinage",
+       y = "Moran global observé (I+)", 
+       x = "Distance voisinage entre AU (km)",
+       color = "Variables",
+       caption = "Seules les valeurs avec p-value < 0.05 sont affichées\nSources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019") +
+  theme(plot.caption.position = "plot")
+
+g_moran_global_univ
+
+
+
+  # ggsave(g_moran_global_univ + labs(title = "", subtitle = ""), path =  "../Output/", filename = "moranglobal_positif_dist_univ.png", device = "png",width = 200, height = 126, units = "mm")
+```
+
+Les niveaux d'auto-corrélation globale positive sont divers selon les
+variables, mais assez logiquement ces scores suivent une fonction
+décroissante en fonction de la distance de voisinage considérée.
+
+Ici, pour les 8 variables, la pente est forte, ce qui suggère que le
+phénomène d'auto-corrélation positive (*est-ce qu'une AU ressemble à ses
+voisines ?*) s'exprime davantage à des faibles distances.
+
+Sur la lecture de ce type de corrélogramme, on pourra voir [l'article de
+Sébastien Oliveau de
+2004](https://shs.cairn.info/revue-espace-geographique-2010-1-page-51?lang=fr){target="_blank"},
+cité en bibliographie de l'article.
+
+# Approches multivariées : typologie des AU selon les niveaux de précarité et effets de voisinage {#sec-part3}
+
+Dans cette section on détaille l'appréhension multivariée de la
+précarité.
+
+Le code produit la majorité des analyses présentées dans la section 3 de
+l'article, et fournit des figures complémentaires.
+
+## ACP {#sec-part3.1}
+
+On réalise une ACP sur les huits variables. Cette analyse n'est pas
+guidée ici uniquement par une logique de statistiques exploratoires (on
+sait notamment que certaines variables sont fortement corrélées entre
+elles), mais par la volonté de produire un espace relatif dans lequel
+positionner l'ensemble des AU afin d'en faciliter la comparaison.
+
+Le choix de conserver les 8 variables est donc davantage théorique : il
+s'agit de discuter notre appréhension de la précarité par selon les
+trois dimensions définies *a priori* dans l'article (Marges de la
+société salariale ; Pauvreté monétaire ; Marges du CDI) et leurs
+interactions.
+
+```{r pca}
+## ACP
+
+# tableau intermédiaire pour l'ACP
+AU_typo <- df2 %>%
+  left_join(select(au_info,AU2010, LIBAU2010, DEP )) %>%
+  relocate(AU2010,LIBAU2010, DEP) %>%
+  as.data.frame()
+
+
+
+# garder les identifiants
+
+rownames(AU_typo) <- paste(AU_typo$LIBAU2010,AU_typo$DEP, sep = "_" )
+
+# faire l'ACP
+res.pca <- PCA(AU_typo[,c(4:length(AU_typo))], # sans les id
+               scale.unit = TRUE, 
+               # quali.sup = 1,
+               # quanti.sup = 7, # employe_Inf
+               graph = FALSE, 
+               ncp = 5) ### IMPORTANT LE NB DE COMPOSANTES UTILISEES par la suite
+
+# pour une exploration interactive
+
+  # explor(res.pca)
+
+## Hiérarchisation des axes
+
+eigenvalues <- as_tibble(res.pca$eig) %>%
+  mutate(Axe = row_number()) %>%
+  pivot_longer(-Axe, values_to = "Valeur", names_to = "Variable")
+
+ggplot(eigenvalues %>% 
+         filter(! Variable == "eigenvalue") %>%
+         filter(Axe < 9)) +
+  geom_bar(aes(x = as.character(Axe) , y = Valeur), 
+           stat = "identity") +
+  facet_wrap(~Variable, 
+             scales = "free_y",
+             labeller = labeller(Variable = c(`cumulative percentage of variance` = "Variance cumulée",
+                                              `percentage of variance` = "Variance"))) +
+  labs(x = "Axes", y = "Variance (%)")
+
+```
+
+Choix de ne garder que les 5 premiers axes (effondrement de la variance
+pour le sixième axe).
+
+## Description des axes {#sec-part3.2}
+
+Dans cette section, on trouve les matériaux complémentaires permettant
+la description complète des axes de l'ACP.
+
+#### Axe 1 vs 2
+
+Représentation graphique des axes 1 et 2 sur le plan factoriel
+
+```{r axe1_2, out.width="100%", fig.height=10}
+
+res <- explor::prepare_results(res.pca)
+
+explor::PCA_var_plot(res, xax = 1, yax = 2, var_sup = FALSE, var_sup_choice = ,
+                     var_lab_min_contrib = 0, col_var = NULL, labels_size = 10, scale_unit = TRUE,
+                     transitions = TRUE, labels_positions = NULL)
+
+
+```
+
+#### Axe 3 vs 4
+
+Représentation graphique des axes 3 et 4 sur le plan factoriel
+
+```{r axe3_4, out.width="100%", fig.height=10}
+
+
+explor::PCA_var_plot(res, xax = 3, yax = 4, var_sup = FALSE, var_sup_choice = ,
+                     var_lab_min_contrib = 0, col_var = NULL, labels_size = 10, scale_unit = TRUE,
+                     transitions = TRUE, labels_positions = NULL)
+
+
+```
+
+#### Description de l'axe 1
+
+```{r axe1}
+# AXe 1
+df_temp <- res$vars %>% 
+  select(-all_of(c("Level", "Type", "Class"))) %>%
+  filter(Axis == 1) %>%
+  arrange(-Contrib) %>%
+  left_join(select(DicoVar, Variable, Label), by = "Variable") %>%
+  relocate(Variable,  Label)
+
+
+
+DT::datatable(df_temp, class = 'cell-border stripe', rownames = F, filter = 'top', editable = F, 
+              caption = "AXE 1") 
+
+```
+
+Commentaire : axe marqué par un cumul des marqueurs de précarité
+témoignant de l'éloignement à l'emploi, en particulier pour les
+dimensions pauvreté monétaire et marges de la société salariale
+
+```{r cartoaxe1, fig.width= 14, fig.height=8}
+AU_cartoAxe <- AU_typo %>% 
+  bind_cols(., res.pca$ind$coord) 
+
+
+## ajout des géometries AU
+AU_cartoAxe <- AU_cartoAxe %>%
+  left_join(AUsf) %>% st_sf
+
+
+ggplot() +
+  geom_sf(data =depsf, fill = "grey40", color = "white", size = 0.5) +
+  geom_sf(data = AU_cartoAxe,
+          mapping = aes(fill = Dim.1 ), size = 0.25) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,na.value = NA) +
+  theme_void() +
+  labs(title = "Cartographie Axe 1",
+       subtitle = "Ensemble Aires Urbaines 2018",
+       fill = "Coordonnées sur l'axe 1",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")
+
+
+```
+
+#### Description de l'axe 2
+
+```{r axe2}
+# Axe 2
+df_temp <- res$vars %>% 
+  select(-all_of(c("Level", "Type", "Class"))) %>%
+  filter(Axis == 2) %>%
+  arrange(-Contrib) %>%
+  left_join(select(DicoVar, Variable, Label), by = "Variable") %>%
+  relocate(Variable,  Label)
+
+
+
+DT::datatable(df_temp, class = 'cell-border stripe', rownames = F, filter = 'top', editable = F, 
+              caption = "AXE 2") 
+
+```
+
+Commentaire : poids des formes d'emplois d'exécution et éloignés du CDI
+(contrat court et interim)
+
+```{r cartoaxe2, fig.width= 14, fig.height=8}
+ggplot() +
+  geom_sf(data =depsf, fill = "grey40", color = "white", size = 0.5) +
+  geom_sf(data = AU_cartoAxe,
+          mapping = aes(fill = Dim.2 ), size = 0.25) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,na.value = NA) +
+  theme_void() +
+  labs(title = "Cartographie Axe 2",
+       subtitle = "Ensemble Aires Urbaines 2018",
+       fill = "Coordonnées sur l'axe 2",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")
+```
+
+#### Description de l'axe 3
+
+```{r axe3}
+# AXe 3
+df_temp <- res$vars %>% 
+  select(-all_of(c("Level", "Type", "Class"))) %>%
+  filter(Axis == 3) %>%
+  arrange(-Contrib) %>%
+  left_join(select(DicoVar, Variable, Label), by = "Variable") %>%
+  relocate(Variable,  Label)
+
+
+
+DT::datatable(df_temp, class = 'cell-border stripe', rownames = F, filter = 'top', editable = F, 
+              caption = "AXE 3") 
+
+```
+
+Commentaire : axe fortement marqué par la variable de nombre
+d'allocataires de l'AAH pour 1000 habitants. 
+La géographie de cette variable et, en générale, de l'AAH (notamment les différences institutionnelles entre départements), nécessiteraient une enquête à part entière.
+
+```{r cartoaxe3, fig.width= 14, fig.height=8}
+ggplot() +
+  geom_sf(data =depsf, fill = "grey40", color = "white", size = 0.5) +
+  geom_sf(data = AU_cartoAxe,
+          mapping = aes(fill = Dim.3 ), size = 0.25) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,na.value = NA) +
+  theme_void() +
+  labs(title = "Cartographie Axe 3",
+       subtitle = "Ensemble des aires urbaines 2018",
+       fill = "Coordonnées sur l'axe 3",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")
+```
+
+#### Description de l'axe 4
+
+```{r axe4}
+# AXe 4
+df_temp <- res$vars %>% 
+  select(-all_of(c("Level", "Type", "Class"))) %>%
+  filter(Axis == 4) %>%
+  arrange(-Contrib) %>%
+  left_join(select(DicoVar, Variable, Label), by = "Variable") %>%
+  relocate(Variable,  Label)
+
+
+
+DT::datatable(df_temp, class = 'cell-border stripe', rownames = F, filter = 'top', editable = F, 
+              caption = "AXE 4") 
+
+```
+
+Commentaire : axe structuré par une opposition entre interim (-) et
+emplois salariés d'exécution peu qualifiés en contrats courts (+). Donc différenciation de nos deux variables concernant les formes d'emploi.
+
+```{r cartoaxe4, fig.width= 14, fig.height=8}
+ggplot() +
+  geom_sf(data =depsf, fill = "grey40", color = "white", size = 0.5) +
+  geom_sf(data = AU_cartoAxe,
+          mapping = aes(fill = Dim.4 ), size = 0.25) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,na.value = NA) +
+  theme_void() +
+  labs(title = "Cartographie Axe 4",
+       subtitle = "Ensemble Aires Urbaines 2018",
+       fill = "Coordonnées sur l'axe 4",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")
+```
+
+#### Description de l'axe 5
+
+```{r axe5}
+# AXe 5
+df_temp <- res$vars %>% 
+  select(-all_of(c("Level", "Type", "Class"))) %>%
+  filter(Axis == 5) %>%
+  arrange(-Contrib) %>%
+  left_join(select(DicoVar, Variable, Label), by = "Variable") %>%
+  relocate(Variable,  Label)
+
+
+
+DT::datatable(df_temp, class = 'cell-border stripe', rownames = F, filter = 'top', editable = F, 
+              caption = "AXE 5") 
+
+```
+
+Commentaire : axe marqué par une opposition entre la part des chômeurs
+courte durée (-) et la part des foyers retraités pauvres (+).
+
+```{r cartoaxe5, fig.width= 14, fig.height=8}
+ggplot() +
+  geom_sf(data =depsf, fill = "grey40", color = "white", size = 0.5) +
+  geom_sf(data = AU_cartoAxe,
+          mapping = aes(fill = Dim.5 ), size = 0.25) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0,na.value = NA) +
+  theme_void() +
+  labs(title = "Cartographie Axe 5",
+       subtitle = "Ensemble Aires Urbaines 2018",
+       fill = "Coordonnées sur l'axe 5",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")
+```
+
+## Auto-corrélation spatiale multivariée {#sec-part3.3}
+
+Sélection du voisinage métriques et des axes de l'ACP. Ces résultats
+sont présentés dans la section 3.2 de l'article.
+
+### Auto-corrélation spatiale globale sur les axes de l'ACP
+
+```{r globalmoran_multi}
+
+# moran global (avec la même fonction que la partie univariée)
+
+# axes de l'acp
+
+data <- res.pca$ind$coord %>% as.data.frame()
+
+# calcul des morans (on peut filtrer pour ne pas mettre toutes les config de voisinage)
+# moran_acp_results <- calculate_moran_tests(data, neighborhood_configs)
+
+
+# Sauvegarde des résultats
+
+ # write.csv(moran_acp_results, "../Output/voisinagemoran_acp_results.csv", row.names = FALSE)
+
+# ouverture des résultats
+moran_acp_results <- read.csv("../Output/voisinagemoran_acp_results.csv")
+
+
+### graphique pour les distances polygones
+
+
+moran_polydist_acp <- moran_acp_results %>%
+  # ne garder que les moran de l'autocorrélation positive pour les calculs de distances à la frontière de polygones
+  filter(type == "I+" & config_type == "polygon" ) %>%
+  mutate(Distance_km = as.numeric(param)/1000) %>%
+  mutate(variable = as.character(parse_number(variable)*10))
+
+
+
+g_moran_global_acp <- ggplot(moran_polydist_acp %>%
+         filter(pvalue < 0.05)) +
+  geom_point(aes(x= Distance_km, y = observed, color = variable, group = variable )) +
+  geom_line(aes(x= Distance_km, y = observed, color = variable, group = variable )) +
+  scale_color_brewer(palette =  "Set1") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  labs(title = "Autocorrélation positive globale pour les 5 axes de l'ACP, en fonction du voisinage", 
+       subtitle = "Voisinage entre les polygones des Aires Urbaines, 2018",
+       y = "Moran global observé (I+)", x = "Distance voisinage entre AU (km)",
+       caption = "Seules les valeurs avec p-value < 0.05 sont affichées\nSources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019",
+       color = "Axes de l'ACP") +
+  theme(plot.caption.position = "plot")
+
+g_moran_global_acp
+
+  # ggsave(g, path =  "../Output/", filename = "moran_positif_global_ACP.png", device = "png",width = 200, height = 126, units = "mm")
+```
+
+### Auto-corrélation spatiale locale sur les axes 1 & 2 de l'ACP
+
+#### Comparaison axe 1 et axe 2
+
+```{r localmoran_multi}
+
+
+# selection des axes
+var_names <- c("Dim.1", "Dim.2")
+
+# selection des configurations de voisinages (uniquement polygones)
+
+neighborhood_configs_local <- names(neighborhood_configs) %>% 
+      str_detect('polygon') %>%
+      keep(neighborhood_configs, .)
+
+## calcul des morans locaux et résumé stats (long à calculer)
+# localmoran_results <- analyze_local_moran(data = data, 
+#                                var_names = var_names,
+#                                listw_configs = neighborhood_configs_local, 
+#                                seuil = 0.005)
+# 
+# 
+# # sauvegarde et ouverture
+# saveRDS(localmoran_results, "../Output/localmoran_summary.rds")
+
+# chargement des résultats
+localmoran_results <- readRDS("../Output/localmoran_summary.rds")
+
+## format long
+
+df <- localmoran_results$summary %>%
+  mutate(voisinage_km = as.numeric(voisinage_km)) %>%
+  pivot_longer(cols = starts_with("sig"), names_to = "pvalue_method", values_to = "n_significatifs") %>%
+  pivot_longer(cols = c(`High-High`, `Low-Low`, `Low-High`, `High-Low`), names_to = "Type_quadrant", values_to = "fdr_count") %>% 
+  mutate(variable = str_replace(variable, "Dim.", "Axe "))
+
+
+
+# graphique nombre de LM siginificatifs
+  
+g1 <-  ggplot(df) +
+  geom_point(aes(x= voisinage_km, y =n_significatifs, color = pvalue_method, group = pvalue_method )) +
+  geom_line(aes(x= voisinage_km, y =n_significatifs, color = pvalue_method, group = pvalue_method )) +
+  scale_color_manual("Méthode d'ajustement",
+                     values = brewer.pal(3,"Set1"), 
+                     labels = c("Bonferonni", "FDR", "Holm")) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 6)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) +
+    facet_wrap(~variable) +
+  labs(title = "Autocorrélation locale sur les deux premiers axes de l'ACP", 
+       subtitle = "Nombre d'AU avec un local moran \"intéressant\"",
+       y = "Nb d'AU avec un local moran  \"intéressant\"", x = "Distance voisinage entre AU (km)",
+       caption = "Pseudo-pvalue < 0.005\nSources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019") +
+  theme(plot.caption.position = "plot")
+ 
+g1 
+   # ggsave(g1, path =  "../Output/", filename = "lmoran_ax1_2_signif.png", device = "png",width = 200, height = 126, units = "mm")
+
+
+
+  # graphique nombre nb type d'autocorrélation quadrant
+  
+g2 <-  ggplot(df) +
+  geom_point(aes(x= voisinage_km, y =fdr_count, color = Type_quadrant, group = Type_quadrant )) +
+  geom_line(aes(x= voisinage_km, y =fdr_count, color = Type_quadrant, group = Type_quadrant )) +
+  scale_color_manual("Type",
+                     values = c("#DC2C48" ,"salmon1" , "lightblue","#4C6FAD")) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) +
+    facet_wrap(~variable) +
+  labs(title = "Autocorrélation locale sur les deux premiers axes de l'ACP", 
+       subtitle = "Configurations des local moran \"intéressants\" selon la position dans le quadrant",
+       y = "Nb d'AU (pseudo-pvalue FDR < 0.005)", x = "Distance voisinage entre AU (km)",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019") +
+  theme(plot.caption.position = "plot")
+g2
+
+ # ggsave(g2, path =  "../Output/", filename = "lmoran_ax1_2_quadrant_count.png", device = "png",width = 200, height = 126, units = "mm")
+  
+ 
+ 
+```
+
+#### Graphiques pour l'axe 1 seulement
+
+Pour l'article, on présente uniquement les résultats pour l'axe 1.
+
+```{r localmoran_axe1}
+## figures  pour l'axe 1 uniquement
+
+g1 <-  ggplot(df %>% filter(variable == "Axe 1")) +
+  geom_point(aes(x= voisinage_km, y =n_significatifs, color = pvalue_method, group = pvalue_method )) +
+  geom_line(aes(x= voisinage_km, y =n_significatifs, color = pvalue_method, group = pvalue_method )) +
+  scale_color_manual("Méthode d'ajustement",
+                     values = brewer.pal(3,"Set1"),
+                     labels = c("Bonferonni", "FDR", "Holm")) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 6)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  labs(y = "Nb d'AU avec un local moran  \"significatif\"", x = "Distance voisinage entre AU (km)",
+       caption = "Pseudo-pvalue < 0.005") +
+  theme(plot.caption.position = "plot")
+
+g1
+
+  # graphique nombre nb type d'autocorrélation quadrant
+
+g2 <- ggplot(df %>% filter(variable == "Axe 1")) +
+  geom_point(aes(x = voisinage_km, y = fdr_count, color = Type_quadrant, group = Type_quadrant)) +
+  geom_line(aes(x = voisinage_km, y = fdr_count, color = Type_quadrant, group = Type_quadrant)) +
+  geom_label_repel(
+    data = df %>% 
+      filter(variable == "Axe 1") %>% 
+      group_by(Type_quadrant) %>% 
+      filter(voisinage_km == max(voisinage_km)) %>%  # Utiliser filter au lieu de slice_max
+      slice(1),  # Prendre seulement la première ligne si plusieurs valeurs max identiques
+    aes(x = voisinage_km, y = fdr_count, label = Type_quadrant, color = Type_quadrant),
+    hjust = 0,
+    nudge_x = 0.5,
+    direction = "y",
+    segment.size = 0.2,
+    size = 3.5,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(values = c("#DC2C48", "salmon1", "lightblue", "#4C6FAD")) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8), expand = expansion(mult = c(0.05, 0.15))) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  labs(y = "Nb d'AU (pseudo-pvalue FDR < 0.005)", 
+       x = "Distance voisinage entre AU (km)",
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019") +
+  theme(plot.caption.position = "plot",
+        legend.position = "none")
+g2
+
+
+ # ggsave(g2, path =  "../Output/", filename = "moranlocal_quadrant_dist.png", device = "png",width = 200, height = 126, units = "mm")
+  
+
+```
+
+#### Cartographie Local Moran Axe 1
+
+```{r cartolocalmoran_axe1}
+
+# tableau des local moran pour deux distances
+dfaxe1 <- localmoran_results$detailed[["Dim.1_polygon_dist_30000_FALSE"]] %>%
+   bind_cols("AU2010" = df2$AU2010, .)
+
+dfaxe1 <- dfaxe1 %>% 
+  mutate(Dist = "30 km") %>%
+  # ajout de la seconde distance 70 km
+  bind_rows(localmoran_results$detailed[["Dim.1_polygon_dist_70000_FALSE"]] %>%
+   bind_cols("AU2010" = df2$AU2010, .)) %>%
+# colonne pour la seconde distance
+  mutate(Dist = if_else(is.na(Dist), "70 km", Dist)) %>%
+    # création de colonnes pour afficher la typo quadrant quand la pseudo pvalue est < 0.005
+  mutate(localmoranAxe1 = case_when(`Pr(z != E(Ii))` < 0.005 ~ `mean`,
+         T ~ "NS"),
+         localmoranAxe1_adjust = case_when(p.value.fdr < 0.005 ~ `mean`,
+         T ~ "NS"))
+
+# ajout de l'information aux géométrie
+carto_moran <- AUsf_93 %>% left_join(dfaxe1) 
+
+  
+
+unique(carto_moran$localmoranAxe1_adjust)
+# ajout d'info AU pour la carto
+carto_moran <- carto_moran %>%
+  left_join(select(au_info, AU2010, LIBAU2010, LIBDEP,LIBREG, pop18_au, TaillAU18 ))
+# vecteur de couleur 
+colCAH <- setNames(c( "#4C6FAD", "grey"  , "#DC2C48", "lightblue", "salmon1" ), 
+                   c("Low-Low" , "NS","High-High", "Low-High","High-Low" ) )
+
+# tableau des 10 villes les plus peuplées pour les label
+
+top_villes_dist1 <- carto_moran %>%
+  filter(Dist == "30 km") %>%
+  filter(localmoranAxe1_adjust != "NS") %>%
+  top_n(10, pop18_au) %>%
+  select(geometry, "LABEL_AU" = LIBAU2010 , pop18_au, Dist)
+
+top_villes_dist2 <- carto_moran %>%
+  filter(Dist == "70 km") %>%
+  filter(localmoranAxe1_adjust != "NS") %>%
+  top_n(10, pop18_au) %>%
+  select(geometry, "LABEL_AU" = LIBAU2010 , pop18_au, Dist)
+
+
+top_villes <- bind_rows(top_villes_dist1, top_villes_dist2) %>%
+  # raccourcir label 
+  mutate(LABEL_AU = str_remove(LABEL_AU, " \\s*\\([^\\)]+\\)")) %>%
+  mutate(LABEL_AU = str_remove(LABEL_AU, " \\s*\\([^\\)]+\\)"))
+  
+rm(top_villes_dist1, top_villes_dist2)
+
+
+g <- ggplot() +
+  geom_sf(data =depsf, fill = "#bfbfbf", color = "white", size = 0.5) +
+  geom_sf(data = carto_moran %>% 
+            filter(localmoranAxe1_adjust != "NS") ,
+          mapping = aes(fill = localmoranAxe1_adjust ), size = 0.25) +
+   geom_label_repel(
+    data = top_villes,
+    aes(label = str_wrap(LABEL_AU, 20), 
+        geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3,
+    force = 1,
+     point.padding = 0.7,
+    alpha = 0.8,
+     segment.color = "black", # Couleur du segment
+    segment.size = 0.3,     # Épaisseur du segment
+    segment.alpha = 0.8,    # Transparence du segment
+    min.segment.length = 0,
+    box.padding = 0.7 ,
+    max.overlaps = Inf
+  ) +
+  scale_fill_manual(values = colCAH) +
+  theme_void() +
+  facet_wrap(~Dist) +
+  labs(title = "Autocorrélation locale sur l'axe 1", 
+       subtitle = "AU avec un local moran \"intéressant\" selon la distance de voisinage",
+       fill = "Position dans le quadrant",
+       caption = "Pseudo-pvalue < 0.005\nSources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019") +
+    theme(plot.caption.position = "plot", 
+        plot.caption =element_text(vjust=25),
+        plot.margin = unit(c(0, 2, 0, 2), "points"))
+g
+
+# enlever titre et sous-titre 
+g <- g + labs(title = "", subtitle = "")
+
+
+# ggsave(plot = g,
+#        path =  "../Output/",
+#        filename = "carto_lm_axe1_30km_70km.png",
+#        width = 210,
+#        height = 148,
+#        dpi = 300,
+#        units = "mm")
+
+```
+
+## CAH {#sec-part3.4}
+
+Réalisation d'une classification ascendante hiérarchique (CAH) avec
+critère de Ward.
+
+```{r cah, fig.width= 14, fig.height=8, comment=FALSE}
+## CAH nb classes
+
+res.hcpc <- HCPC(res.pca, 
+                 graph = FALSE, 
+                 method = "ward" ,
+                 min = 5, 
+                 max = 8, 
+                 nb.par = 10, 
+                 description = TRUE, 
+                 proba = 1) # IMPORTANT pour garder les Axes et variables non significatifs)
+
+
+# couleur des classes
+
+colCAH <- setNames(c("#CCEBC5", "#4C6FAD",   "#DC2C48", "#FFCC33",  "hotpink1" ), 
+                   c(1,2,3,4,5) )
+
+
+fviz_dend(res.hcpc,
+          show_labels = FALSE,
+          palette = colCAH,               # Color palette ggpubr
+          rect = TRUE,
+          rect_fill = TRUE, # Add rectangle around groups
+          main = "Dendrogramme")           # Rectangle color )
+
+
+fviz_cluster(res.hcpc,
+             geom = "point",           
+             show.clust.cent = TRUE, # Show cluster centers
+             palette = colCAH,         # Color palette ggpubr
+             ggtheme = theme_grey(),
+             main = "Cluster sur les axes 1 et 2",
+             axes = c(1,2)
+)
+
+fviz_cluster(res.hcpc,
+             geom = "point",           
+             show.clust.cent = TRUE, # Show cluster centers
+             palette = colCAH,         # Color palette ggpubr
+             ggtheme = theme_grey(),
+             main = "Cluster sur les axes 3 et 4",
+             axes = c(3,4)
+)
+
+
+
+```
+
+Choix du nombre de classe = 5
+
+### Descriptions des classes
+
+#### Positions moyennes sur les axes
+
+```{r, fig.width= 14, fig.height=8}
+
+
+## Individus par classes
+
+Nclust <- res.hcpc$data.clust %>%
+  group_by(clust)%>%
+  summarise(N = n())%>%
+  rename(Cluster = clust)
+
+# classe selon la position moyenne sur les axes
+ProfileAxe <- res.hcpc$desc.axes$quanti %>%
+  imap_dfr(., ~as_tibble(., rownames = "Variable"),.id = "Cluster") %>%
+  mutate(Axe = parse_number(Variable)*10 )
+
+
+
+ggplot(ProfileAxe) +
+  geom_bar(aes(x = Variable, y = `Mean in category`, fill = Cluster), stat = "identity") +
+  scale_fill_manual(values = colCAH) +
+  geom_errorbar(aes(x = Variable, 
+                    ymin = `Overall mean`, ymax = `Overall mean`),
+                color = "black",
+                linewidth = 0.5) +
+  facet_wrap(~ Cluster) +
+  geom_text(data = ProfileAxe %>% filter(p.value>0.05),
+            mapping = aes(label = paste("Non sign.\np = ", round(p.value, digits = 3)), 
+                          x = Variable, 
+                          y = `Mean in category`),
+            vjust = 0.5, 
+            hjust= -0.5,
+            position = position_dodge(width = 0.8),
+            size = 2) +
+  geom_label(data = Nclust, 
+             mapping = aes(label = paste0("N = ", N)), 
+             size = 3.5,
+             x = Inf, y = Inf ,
+             hjust = 1.5,
+             vjust = 2) +
+  labs(title = "Description des classes",
+       subtitle = "Position moyenne sur les axes",
+       x = "Axe", 
+       y = "Moyenne", 
+       caption = "Sources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019") +
+  theme_grey() +
+  coord_flip()
+
+
+```
+
+-   AXE 1 : Cumul des marqueurs de précarité témoignant de l'éloignement
+    à l'emploi (aides sociales, chômage) et des difficultés économiques
+    qui en résultent (pauvreté des foyers fiscaux)
+-   AXE 2 : porté par la structure et les formes de l’emploi en marge du
+    CDI (Intérim et emplois peu qualifiés en contrats courts)
+-   AXE 3 : structuré par la variable de nombre de bénéficiaires de
+    l'AAH pour 1000 habitants
+-   AXE 4 : différencie deux formes d’emploi, l’intérim VS les emplois
+    peu qualifiés en CDD
+-   AXE 5 : oppose les chômeurs de courte durée et les foyers retraités
+    pauvres
+
+#### Valeurs moyennes par classe
+
+```{r, fig.width= 14, fig.height=8}
+
+# classe selon les valeurs moyennes par variables
+
+ProfileVar <- res.hcpc$desc.var$quanti %>%
+  imap_dfr(., ~as_tibble(., rownames = "Variable"),.id = "Cluster") 
+
+# Transformation de la variable RSA pour 1000 hab en pct (pour l'échelle)
+
+
+ProfileVar <- ProfileVar %>%
+  mutate(`Mean in category` = case_when(Variable == "RSA_1khab" ~ `Mean in category`/10,
+                                        T ~ `Mean in category`),
+         `Overall mean` = case_when(Variable == "RSA_1khab" ~ `Overall mean`/10,
+                                        T ~ `Overall mean`))
+
+# graphique
+ggplot(ProfileVar) +
+  geom_bar(aes(x = Variable, y = `Mean in category`, fill = Cluster), stat = "identity") +
+  scale_fill_manual(values = colCAH) +
+  geom_errorbar(aes(x = Variable, 
+                    ymin = `Overall mean`, 
+                    ymax = `Overall mean`,
+                    color = "moy"),
+                linewidth = 0.25) +
+  scale_color_manual(values = c(moy = "black"), 
+                     labels = c(moy = "Moyenne ensemble")) +
+  facet_wrap(~ Cluster) +
+  geom_text(data = ProfileVar %>% filter(p.value>0.05),
+            mapping = aes(label = paste("Non sign.\np = ", round(p.value, digits = 3)), 
+                          x = Variable, 
+                          y = `Mean in category`),
+            vjust = 0.5, 
+            hjust= -0.5,
+            position = position_dodge(width = 0.8),
+            size = 2) +
+  geom_label(data = Nclust, 
+             mapping = aes(label = paste0("N = ", N)), 
+             size = 3.5,
+             x = Inf, y = Inf ,
+             hjust = 1.5,
+             vjust = 1) +
+  labs(title = "Description des classes",
+       subtitle = "Valeurs moyennes sur les variables",
+       x = "Variable", 
+       y = "Moyenne", 
+       fill = "Classe",
+       colour = "",
+       caption = "Sources : INSEE RP 18\nCAF & DGFIP") +
+  theme_grey() +
+  coord_flip() +
+   scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) 
+
+
+
+
+```
+
+(Nb : RSA en pct pour cette représentation et non pas pour 1000
+habitants )
+
+-   Classe 1 : 263 AU. Une précarité moins marquée dans les 3
+    dimensions. c’est la sous-représentation qui qualifie cette classe,
+    mais ne signifie pas que la précarité est absente (presque un foyer
+    fiscal sur cinq est "pauvre" monétairement).
+
+-   Classe 2 : 145 AU. Précarité assez forte dans les formes d’emploi.
+    Moins de chômage, moins d’éloignement à l’emploi mais les emplois
+    sont davantage "précaires" (interim, emplois d'exécution peu
+    qualifiés en contrat court).
+
+-   Classe 3 : 276 AU. Une précarité assez forte, configurée par la
+    pauvreté monétaire et les aides sociales (notamment l'AAH). Cumul
+    des formes d'éloignement à l’emploi (axes 1 et 3). Davantage de
+    chômage que les classes 1 et 2.
+
+-   Classe 4 : 86 AU. Précarité forte sur les trois dimensions
+
+-   Classe 5 : 19 AU. précarité très forte configurée par l’éloignement
+    à l’emploi et les faibles revenus/la pauvreté
+
+#### Parangons et Individus spécifiques selon les classes
+
+-   *parangons* (\$para) = individus représentatifs (milieu de classe) ;
+
+-   *individus spécifiques* (\$dist) = individus d'une classe étant les
+    plus éloignés des autres classes
+
+```{r}
+# paragons ($para) & individus spécifiques ($dist) par classe 
+
+res.hcpc$desc.ind
+```
+
+#### Cartographie des résultats
+
+```{r carto_cah, fig.width= 14, fig.height=8}
+## Cartographie
+
+### Cartographie statiques
+
+
+## Récupérer la typo
+AU_carto <- AU_typo %>% 
+  bind_cols(., CAH = res.hcpc$data.clust$clust) 
+
+
+## ajout des géometries AU
+AU_carto <- AU_carto %>%
+  left_join(AUsf) %>% st_sf
+
+
+# labelClass
+
+
+CAHlabel <- data.frame(CAH = sort(unique(AU_carto$CAH)) ,
+                       CAHlabs = c("1. Une précarité moins marquée dans les 3 dimensions",
+                                   "2. Une précarité assez forte dans les formes d’emploi",
+                                   "3. Une précarité assez forte,configurée par les aides sociales",
+                                   "4. Une précarité forte dans les 3 dimensions",
+                                   "5. Une précarité très forte configurée par l’éloignement à l’emploi et les faibles revenus"))
+
+# couleur
+
+colCAH <- setNames(c("#CCEBC5", "#4C6FAD",   "#DC2C48", "#FFCC33",  "hotpink1" ), 
+                   c(1,2,3,4,5) )
+
+
+# ajout des comptages et labels
+AU_carto <-AU_carto %>%
+  left_join(CAHlabel, by ="CAH") %>% 
+  add_count(CAHlabs) %>%
+  mutate(CAHlabel_n = paste0(CAHlabs, " (n = ", n, ")"))
+## cartographie
+
+g3 <-ggplot() +
+  geom_sf(data =depsf, fill = "#bfbfbf", color = "white", size = 0.5) +
+  geom_sf(data = AU_carto,
+          mapping = aes(fill = CAH ), size = 0.25) +
+  scale_fill_manual(values = colCAH, 
+                    labels = str_wrap(sort(unique(AU_carto$CAHlabel_n)),60), 
+                    breaks = 1:length(unique(AU_carto$CAHlabel_n))) +
+  theme_void() +
+  labs(title = "5 Profils de précarité de la population urbaine",
+       subtitle = "Ensemble des AU en 2018",
+       fill = "Aires urbaines présentant...",
+       caption = "Méthode : ACP + CAH (critère de Ward)\nSources : INSEE -RP18 expl. princ. \n CNAF - ALL-STAT-FR6 dec 2018\n DGFIP IRCOM 2019")+
+  theme(plot.caption.position = "plot", 
+        legend.margin = unit(c(0, 0, 0,0), "points"),
+        plot.caption =element_text(vjust=10),
+        plot.margin = unit(c(0, 10, 0,0), "points"),
+        axis.ticks.length = unit(0, "points"))
+
+
+
+# affichage de la carte
+g3
+
+# version sans titre
+g3 <- g3 + labs(title = "",
+                subtitle = "")
+
+# ggsave(plot = g3,
+#        path =  "../Output/",
+#        filename = "carto_cahpreca_2018_5classes.png",
+#        width = 210,
+#        height = 148,
+#        dpi = 300,
+#        device = "png",
+#        units = "mm",
+#        bg = "white")
+```
+
+# Tableau des résultats {#sec-part4}
+
+Tableau récapitulatif de la typologie.
+
+```{r table_results}
+
+dfrecap <- AU_carto %>% 
+  st_drop_geometry() %>% 
+  relocate(CAHlabs, .after = DEP) %>%
+   mutate(across(where(is.numeric), ~round(., 2)))  %>%
+ select(-c("n","CAHlabel_n"))
+
+# export 
+# write.csv2(dfrecap, "../Output/TypoPreca_AU_casd.csv", row.names = F, fileEncoding = "UTF-8")
+
+sticky_style <- list(backgroundColor = "#f7f7f7")
+
+reactable(dfrecap, filterable = TRUE, minRows = 10,  striped = TRUE,
+            columns = list(
+    AU2010 = colDef(
+      sticky = "left",
+      style = sticky_style,
+      headerStyle = sticky_style
+    ),
+    LIBAU2010 = colDef(
+      sticky = "left",
+      style = sticky_style,
+      headerStyle = sticky_style
+    ),
+    DEP = colDef(
+      sticky = "left",
+      style = sticky_style,
+      headerStyle = sticky_style
+    ),
+    CAHlabs = colDef(
+      sticky = "left",
+      style = sticky_style,
+      headerStyle = sticky_style
+    )
+  ),
+  resizable = TRUE,
+  wrap = FALSE,
+  bordered = TRUE)
+
+
+```
