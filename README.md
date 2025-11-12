@@ -20,13 +20,14 @@ Le script HTML est copié à la racine sous le nom `index.html` pour faciliter s
 
 Les données sont issues de l'exploitation de trois sources *via* le CASD :
 	- Les exploitations principales et complétaires du recensement de la population 2018 de l'Insee ([RP 2018 -
-    INSEE](https://www.casd.eu/source/recensement-de-la-population/){target="_blank"})
+    INSEE](https://www.casd.eu/source/recensement-de-la-population/))
     - Le fichier statistiques des allocataires de la CAF, pour décembre 2018 ([ALLSTAT_FR6 -
-    CNAF](https://www.casd.eu/source/fichier-statistique-des-allocataires-des-caf-donnees-definitives/){target="_blank"})
+    CNAF](https://www.casd.eu/source/fichier-statistique-des-allocataires-des-caf-donnees-definitives/))
     - Le fichier des impots sur le revenu 2019 sur l'année fiscale 2018 agrégés à la commune de la DGFIP ([IRCOM -
-    DGFIP](https://www.casd.eu/source/impot-sur-le-revenu-agrege-a-la-commune/){target="_blank"}).
+    DGFIP](https://www.casd.eu/source/impot-sur-le-revenu-agrege-a-la-commune/)).
 
 
 A partir de l'appartenance communale, ces données ont été agrégées selon les aires urbaines (définition de 2010) pour le millésime géographique 2021. 
+
 
 
