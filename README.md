@@ -2,7 +2,7 @@
 
  Ce dépôt constitue une annexe à l'article **Analyse multidimensionnelle de la précarité dans le système urbain français**, à paraître dans la revue *Cybergeo*
  
- On trouvera la page d'annexes en suivant ce [lien](https://pgourdongeo.github.io/Annexes_AU_2018_precarite/)
+ On trouvera la page d'annexes en suivant le lien ci contre :  [https://pgourdongeo.github.io/Annexes_AU_2018_precarite/](https://pgourdongeo.github.io/Annexes_AU_2018_precarite/)
 
 
 Auteurs et autrices de l'article : Paul Gourdon, Matthieu Delage, Julie Fromentin, Benoit Conti, Sophie Baudet-Michel et Laurent Terral
@@ -28,6 +28,7 @@ Les données sont issues de l'exploitation de trois sources *via* le CASD :
 
 
 A partir de l'appartenance communale, ces données ont été agrégées selon les aires urbaines (définition de 2010) pour le millésime géographique 2021. 
+
 
 
 
