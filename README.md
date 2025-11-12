@@ -12,7 +12,7 @@ Code R : Paul Gourdon
 
 Les dossiers contenant les données importées (/Data/) et produites (/Output/) sont ici laissés vide.
 
-On trouvera le dossier complet avec les données sur l'archive Zenodo suivante : [DOI : ](https://)
+On trouvera le dossier complet avec les données sur l'archive Zenodo suivante : [DOI : 10.5281/zenodo.17590908](https://zenodo.org/records/17590909))
 
 Le dossier `/Scripts` contient la version HTML du code commenté, ainsi que la version Rmarkdown (.rmd). 
 Le script HTML est copié à la racine sous le nom `index.html` pour faciliter son affichage.
@@ -28,6 +28,7 @@ Les données sont issues de l'exploitation de trois sources *via* le CASD :
 
 
 A partir de l'appartenance communale, ces données ont été agrégées selon les aires urbaines (définition de 2010) pour le millésime géographique 2021. 
+
 
 
 
