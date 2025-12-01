@@ -37,10 +37,7 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE )
 
 Ce fichier d'annexes présente un code R commenté, suivant la chronologie
 de la chaîne de traitements ayant permis les analyses présentées dans
-l'article : [Gourdon P. et al., 2025, « Analyse multidimensionnelle de
-la précarité dans le système urbain français », *Cybergeo : European
-Journal of
-Geography*,](https://journals.openedition.org/cybergeo/){target="_blank"}
+l'article : [Paul Gourdon, Matthieu Delage, Julie Fromentin, Benoit Conti, Sophie Baudet-Michel et Laurent Terral, 2025, « Analyse multidimensionnelle de la précarité dans le système urbain français », *Cybergeo: European Journal of Geography*](https://journals.openedition.org/cybergeo/42415){target="_blank"}
 
 Ouverture de plusieurs tables :
 
